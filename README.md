@@ -1,1 +1,1 @@
-python main.py
+python main.py 3.Camera.avi 4.Camera.avi

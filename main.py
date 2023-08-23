@@ -5,6 +5,7 @@ import cv2
 import matplotlib.pyplot as plt
 import numpy as np
 import pyautogui
+import argparse
 from scipy.optimize import minimize
 
 from tracker import *
@@ -114,8 +115,14 @@ def image_hist(frame_hist, arr_hist, count_id, frame, k, stop):
     return count_id
 
 
-path1 = "3.Camera 2017-05-29 16-23-04_137 [3m3s].avi"
-path2 = "4.Camera 2017-05-29 16-23-04_137 [3m3s].avi"
+parser = argparse.ArgumentParser(description="Input video file")
+parser.add_argument("video_path1", type=str, help="Path to the video file number 1")
+parser.add_argument("video_path2", type=str, help="Path to the video file number 2")
+args = parser.parse_args()
+
+path1 = args.video_path1
+path2 = args.video_path2
+
 cap1 = cv2.VideoCapture(path1)
 cap2 = cv2.VideoCapture(path2)
 tracker1 = EuclideanDistTracker()
