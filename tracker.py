@@ -16,8 +16,6 @@ class EuclideanDistTracker:
             cy = (y + y + h) // 2
             # Поиск уже существующего объекта
             same_object_detected = False
-            dist = 0
-            dist2 = 0
             for id, pt in self.center_points.items():
                 dist = math.hypot(cx - pt[0], cy - pt[1])
                 # print(dist)
