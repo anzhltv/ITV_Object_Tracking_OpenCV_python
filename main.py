@@ -1,14 +1,65 @@
-import time
-from datetime import datetime
+import argparse
 
 import cv2
 import matplotlib.pyplot as plt
 import numpy as np
 import pyautogui
-import argparse
-from scipy.optimize import minimize
 
 from tracker import *
+
+
+def clean_array(arr_id):
+    for i in range(len(arr_id)):
+        arr_id[i] = 0
+
+
+def if_same_object(arr_id, array_hist, count_same, id_save):
+    # если был найден существующий объект, то очистка собранных гистограмм и массива id + увеличение числа совпадающих объектов
+    if max(arr_id) >= count_frame // 5:
+        array_hist[id_save - count_same] = 0
+        count_same += 1
+    clean_array(arr_id)
+    return count_same
+
+
+def find_max_same_id(arr_id, count_same, id):
+    # если максимальное совпадение больше чем 1/6 от общего числа кадров проверки
+    if max(arr_id) >= count_frame // 6:
+        print(count_frame // 6)
+        # то берем найденный id
+        correct_id = arr_id.index(max(arr_id))
+    else:
+        # иначе следующий по порядку
+        correct_id = id - count_same
+    return correct_id
+
+
+def search_compare(global_id, opt_param, arr_id):
+    obj_id, obj_k, max = (0, 0, 0)
+    for i in range(global_id):
+        compareHist = cv2.compareHist(
+            array_hist[global_id].astype(np.float32),
+            array_hist[i].astype(np.float32),
+            cv2.HISTCMP_CORREL,
+        )
+        # print('COMPARE: ', compareHist, 'i = ', i)
+        if compareHist > opt_param and compareHist != 1:
+            if max < compareHist:
+                max = compareHist
+                obj_id = i
+                obj_k += 1
+    if obj_k > 0:
+        # увеличиваем значение элемента с индексом id у которого максимальное совпадение с гистограммой
+        arr_id[obj_id] += 1
+    return
+
+
+def detect_countour(size, contours, detections):
+    for cnt in contours:
+        area = cv2.contourArea(cnt)
+        if area > size:
+            x, y, w, h = cv2.boundingRect(cnt)
+            detections.append([x, y, w, h])
 
 
 def get_screen_resolution():
@@ -16,71 +67,17 @@ def get_screen_resolution():
     return screen_width, screen_height
 
 
-def if_edge(y):
+def if_border(y, h):
     if y < 50:
-        y1 = y + 50
+        y1 = y + h + 30
     else:
         y1 = y - 15
     return y1
 
 
-# яркость/контраст в доработке
-def objective(I_new, I_et, N):
-    I2 = I_et
-    I1 = I_new
-    # a=(I1_sum-I2_sum*I_sum)/(N*I2_sum_q-I2_sum**2)
-    # b=(N*I_sum-I1_sum*I2_sum)/(N*I2_sum_q-I2_sum**2)
-    # a=(I_sum-I1_sum*I2_sum/N)/I2_sum_q-I2_sum_q/N
-    # b=I1_sum-a*I2_sum/N
-    n = I1.shape[0] * I1.shape[1]
-    sum_I1_squared = np.sum(I1 * I1)
-    sum_I2 = np.sum(I2)
-    sum_I1_I2 = np.sum(I1 * I2)
-    sum_I1 = np.sum(I1)
-    # a = (sum_I1 * sum_I2_squared - sum_I1_I2 * sum_I2) / (n * sum_I2_squared - sum_I2 ** 2)
-    # b = (n * sum_I1_I2 - sum_I1 * sum_I2) / (n * sum_I2_squared - sum_I2 ** 2)
-    # a=-1*(sum_I2*sum_I1+n*sum_I1_I2)/(sum_I1_squared*(n-1))
-    # a=sum_I1_I2/sum_I1_squared
-    # b=(a*sum_I1-sum_I2)/n
-    # # print('a= ',a,'b= ', b)
-    # b=(I1_sum-I_sum)/N-I2_sum
-    # a=(I1_sum-b*N)/I2_sum
-    a = np.array([[2 * sum_I1_squared, 2 * sum_I1], [2 * sum_I1, 2 * N]])
-    b = np.array([2 * sum_I1_I2, 2 * sum_I2])
-    solution = np.linalg.solve(a, b)
-    a = solution[0]
-    b = solution[1]
-    # a=20
-    # b=sum_I1-a*sum_I2
-    min = a * sum_I1 + b - sum_I2
-    print("min ", min)
-    print("a= ", a, "b= ", b)
-    # new_image = cv2.convertScaleAbs(I_et, alpha=40, beta=20)
-    gray_image = cv2.cvtColor(I_et, cv2.COLOR_BGR2GRAY)
-    mean_brightness = gray_image.mean()
-    new_image = cv2.convertScaleAbs(I_et, alpha=1.5, beta=0)
-    # new_image = np.clip(I_et * (1.0 + 20), 0, 255).astype(np.uint8)
-    # matrix = np.array([[1.0, 0.0, 0.0],
-    #                    [0.0, 1.0, 0.0],
-    #                    [0.0, 0.0, 1.0 + 20]])
-    # new_image = cv2.transform(I_et, matrix)
-    # new_image = np.clip(new_image, 0, 255)
-    cv2.imshow("New Image", new_image)
-    cv2.imshow("Image", I_new)
-    return
-
-
-def image_hist(frame_hist, arr_hist, count_id, frame, k, stop):
+def image_hist(frame_hist, arr_hist, count_id, count_frame):
     alpha = 0.1
-    # color = ('b', 'g', 'r')
-    # for channel, col in enumerate(color):
-    #     hist_color = cv2.calcHist([frame_hist], [channel], None, [256], [0, 256])
-    #     plt.plot(hist_color, color=col)
-    # plt.show()
-    # # time.sleep(3)
-    # plt.close('all')
-    # frame_hist = cv2.cvtColor(frame_hist, cv2.COLOR_BGR2RGB)
-    if stop == False:
+    if count_frame > 0:
         b, g, r = cv2.split(frame_hist)
         b_eq = cv2.equalizeHist(b)
         g_eq = cv2.equalizeHist(g)
@@ -91,28 +88,13 @@ def image_hist(frame_hist, arr_hist, count_id, frame, k, stop):
         )
         cv2.normalize(frame_hist, None, 0, 1.0, cv2.NORM_MINMAX)
         EPSILON = 1e-6
-        compare = cv2.compareHist(
-            arr_hist[count_id][frame].astype(np.float32),
-            frame_hist.astype(np.float32),
-            cv2.HISTCMP_CORREL,
-        )
-        if k[0] > 0:
-            if np.all(np.abs(arr_hist[count_id]) < EPSILON):
-                arr_hist[count_id][frame] = frame_hist
-            else:
-                arr_hist[count_id][frame] = (
-                    alpha * (frame_hist) + (1 - alpha) * arr_hist[count_id][frame]
-                )
-            k[0] -= 1
+        # если первая запись гистограммы - записываем всю, иначе как 0.1 нового значения и 0.9 старого
+        if np.all(np.abs(arr_hist[count_id]) < EPSILON):
+            arr_hist[count_id] = frame_hist
         else:
-            if (frame == 0 and compare > 0.1) or (frame == 1 and compare > 0.1):
-                if np.all(np.abs(arr_hist[count_id]) < EPSILON):
-                    arr_hist[count_id][frame] = frame_hist
-                else:
-                    arr_hist[count_id][frame] = (
-                        alpha * (frame_hist) + (1 - alpha) * arr_hist[count_id][frame]
-                    )
-    return count_id
+            arr_hist[count_id] = alpha * (frame_hist) + (1 - alpha) * arr_hist[count_id]
+
+    return
 
 
 parser = argparse.ArgumentParser(description="Input video file")
@@ -127,265 +109,160 @@ cap1 = cv2.VideoCapture(path1)
 cap2 = cv2.VideoCapture(path2)
 tracker1 = EuclideanDistTracker()
 tracker2 = EuclideanDistTracker()
-I_new = cv2.VideoCapture("ex1_2.png")
-I_et = cv2.VideoCapture("ex1_1.png")
-_, I_new = I_new.read()
-_, I_et = I_et.read()
 
 EPSILON = 1e-6
 width, height = get_screen_resolution()
+print(width, height)
 N = width * height
-size1 = int(round(0.02 * width * height))
-size2 = int(round(0.0034 * width * height))
-boxes_ids2_save = []
-id_save, id2_save, id1_save = (0, 0, 0)
-id2, id1 = (0, 0)
-id2_new, id1_new = (0, 0)
-flag1, flag2 = (1, 1)
-correct_id2, correct_id1 = (0, 0)
+
+size1, size2 = (
+    int(round(0.02 * width * height)),
+    int(round(0.0034 * width * height)),
+)  # минимальные размеры боксов
+
+id2_save, id1_save = (-1, -1)
+count_frame = 40
+
 ret1, frame1_1 = cap1.read()
 ret2, frame2_2 = cap2.read()
-arr_id1 = [0] * 10
-arr_id2 = [0] * 10
-array_hist = np.zeros((200, 1, 160, 160, 160))
-k, k1, k2 = (0, 0, 0)
-global_id, global_id1, global_id2 = (0, 0, 0)
-opt_param1, opt_param2 = (0.5, 0.21)
-count_same = 0
-k = [30]
-k1 = 30
-id_number = 0
-save_global_id1, save_global_id2 = (0, 0)
-stop1, stop2 = (False, False)
-some = 5
+height_frame, width_frame, _ = frame1_1.shape
+
+arr_id1, arr_id2 = ([0] * 10, [0] * 10)
+array_hist = np.zeros((200, 160, 160, 160))  # массив для накопления гистограмм объектов
+
+opt_param1, opt_param2 = (0.5, 0.21)  # границы сравнения гистограмм для каждого кадра
+count_same = 0  # переменная для подсчета одинаковых объектов
+
+report2 = True
 output_frames = []
+
 while True:
     ret1, frame1 = cap1.read()
     ret2, frame2 = cap2.read()
 
-    roi1 = frame1[0:720, 150:600]
-    roi2 = frame2[0:720, 400:800]
-
+    roi1 = frame1[0:height_frame, width_frame // 8 : width_frame // 2]
+    roi2 = frame2[0:height_frame, int(width_frame // 3.2) : int(width_frame / 1.6)]
     # 1. Object Detection
     diff1 = cv2.absdiff(frame1_1, frame1)
     diff1 = cv2.cvtColor(diff1, cv2.COLOR_BGR2GRAY)
-
-    diff2 = cv2.absdiff(frame2_2, frame2)
-    diff2 = cv2.cvtColor(diff2, cv2.COLOR_BGR2GRAY)
-
-    diff2 = diff2[0:720, 400:800]
     _, mask1 = cv2.threshold(diff1, 20, 255, cv2.THRESH_BINARY)
-    _, mask2 = cv2.threshold(diff2, 20, 255, cv2.THRESH_BINARY)
-
     kernel = np.ones((2, 2), np.uint8)
     mask1 = cv2.dilate(mask1, kernel, iterations=3)
 
+    diff2 = cv2.absdiff(frame2_2, frame2)
+    diff2 = cv2.cvtColor(diff2, cv2.COLOR_BGR2GRAY)
+    diff2 = diff2[0:height_frame, int(width_frame // 3.2):int(width_frame / 1.6)]
+    _, mask2 = cv2.threshold(diff2, 20, 255, cv2.THRESH_BINARY)
     kernel = np.ones((3, 3), np.uint8)
     mask2 = cv2.dilate(mask2, kernel, iterations=7)
 
     contours1, _ = cv2.findContours(mask1, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
     contours2, _ = cv2.findContours(mask2, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
 
-    # similarity = cv2.matchShapes(contours1[0], contours2[0], cv2.CONTOURS_MATCH_I1, 0.0)
-    # print('similarity=', similarity)
-    # print('contours:', contours1)
     detections1 = []
     detections2 = []
-    for cnt in contours1:
-        area = cv2.contourArea(cnt)
-        if area > size1:
-            # cv2.drawContours(frame1, [cnt], -1, (0, 255, 0), 2)
-            x, y, w, h = cv2.boundingRect(cnt)
-            detections1.append([x, y, w, h])
+    detect_countour(size1, contours1, detections1)
+    detect_countour(size2, contours2, detections2)
 
-    for cnt in contours2:
-        area = cv2.contourArea(cnt)
-        if area > size2:
-            # cv2.drawContours(roi2, [cnt], -1, (0, 255, 0), 2)
-            x, y, w, h = cv2.boundingRect(cnt)
-            detections2.append([x, y, w, h])
-
-    # Треккинг ----------------------------------------------------------------------------------
-
+    # трекинг кадра с первой камеры
     boxes_ids1 = tracker1.update(detections1)
-    report = False
+    report1 = True
     for box_id in boxes_ids1:
         x, y, w, h, id1 = box_id
-        y1 = if_edge(y)
-        report = True
-        frame_plt = frame1[y : y + h, x : x + w]
-        if id1 != id1_save:
-            if flag1 == 2:
-                if np.all(array_hist[correct_id1][0] < EPSILON):
-                    array_hist[correct_id1][0] = array_hist[global_id1][0]
-                array_hist[global_id1][0] = 0
-                count_same += 1
-                flag1 = 1
-                for i in range(len(arr_id1)):
-                    arr_id1[i] = 0
-                k[0] = 20
+        # если надпись окажется за пределами
+        y1 = if_border(y, h)
+        report1 = False
+        frame_plt1 = frame1[y : y + h, x : x + w]
 
-        # /////////////////////////////////
-        if flag2 == 2:
-            if np.all(array_hist[correct_id2][0] < EPSILON):
-                array_hist[correct_id2][0] = array_hist[global_id2][0]
-            array_hist[global_id2][0] = 0
-            flag2 = 1
-            if max(arr_id2) > 15:
-                count_same += 1
-            for i in range(len(arr_id2)):
-                arr_id2[i] = 0
-            k[0] = 20
+        # если новый объект
+        if id1 != id1_save:
+            # проверяем содержимое массива id и увеличиваем кол-во одинаковых объектов
+            count_same = if_same_object(arr_id1, array_hist, count_same, id1_save)
+            # если нет объекта во второй камере
+            if report2 == True:
+                # проверяем содержимое массива id и увеличиваем кол-во одинаковых объектов
+                count_same = if_same_object(arr_id2, array_hist, count_same, id2_save)
+            # обновляем счетчик кадров для гистограмм и для детектора
+            count_frame1 = count_frame
 
         global_id1 = id1 - count_same
-        if save_global_id1 != global_id1:
-            k[0] = 20
-            if k1 > 0:
-                if max(arr_id1) > 15:
-                    correct_id1 = arr_id1.index(max(arr_id1))
-                else:
-                    correct_id1 = id1 - count_same
-                    flag1 = 1
-        if flag1 != 2 and id1_save != id1:
-            k1 = 30
-            stop1 = False
         id1_save = id1
-        save_global_id1 = image_hist(frame_plt, array_hist, global_id1, 0, k, stop1)
-        max1 = 0
-        if k1 > 0:
-            for i in range(global_id1):
-                for j in range(1):
-                    compareHist1 = cv2.compareHist(
-                        array_hist[global_id1][0].astype(np.float32),
-                        array_hist[i][j].astype(np.float32),
-                        cv2.HISTCMP_CORREL,
-                    )
-                    if compareHist1 > opt_param1 and compareHist1 != 1:
-                        arr_id1[i] += 1
-                        if max1 < compareHist1:
-                            boxes_ids1[:][-1] = i
-                            id1_new = id1
-                            flag1 = 2
-                            max1 = compareHist1
-            k1 -= 1
-        if k1 > 0:
-            correct_id1 = id1 - count_same
+
+        # копим новые гистограммы
+        image_hist(frame_plt1, array_hist, global_id1, count_frame1)
+
+        # пока счетчик кадров больше нуля, считаем сходства новой гистограммы с уже имеющимися
+        if count_frame1 > 0:
+            search_compare(global_id1, opt_param1, arr_id1)
+            count_frame1 -= 1
+            correct_id1 = global_id1
+            print('arr_id1 ', arr_id1)
         else:
-            if max(arr_id1) >= 6:
-                correct_id1 = arr_id1.index(max(arr_id1))
-            else:
-                correct_id1 = id1 - count_same
-                flag1 = 1
-            stop1 = True
-        if id1 == id1_new and flag1 == 2:
+            # иначе ищем id с макс совпадением
+            correct_id1 = find_max_same_id(arr_id1, count_same, id1)
             id1 = correct_id1
-        else:
-            if flag1 == 2:
-                flag1 = 3
-            else:
-                id1 = id1 - count_same
-        cv2.putText(
-            frame1,
-            "Object " + str(id1),
-            (x, y1),
-            cv2.FONT_HERSHEY_PLAIN,
-            2,
-            (0, 0, 255),
-            2,
-        )
+            cv2.putText(
+                frame1,
+                "Object " + str(id1),
+                (x, y1),
+                cv2.FONT_HERSHEY_PLAIN,
+                2,
+                (0, 0, 255),
+                2,
+            )
+
         cv2.rectangle(frame1, (x, y), (x + w, y + h), (255, 0, 0), 3)
         tracker2.id_count = tracker1.id_count
 
-    # ---------------------------------------------------------------------------------------------------------------
+    # трекинг кадра со второй камеры
+    report2 = True
     boxes_ids2 = tracker2.update(detections2)
-    count_id = 0
     for box_id in boxes_ids2:
-        count_id += 1
         x, y, w, h, id2 = box_id
-        y1 = if_edge(y)
+        # если надпись окажется за пределами
+        y1 = if_border(y, h)
         frame_plt2 = roi2[y : y + h, x : x + w]
-        if flag1 == 2 and report == False:
-            if np.all(array_hist[correct_id1][0] < EPSILON):
-                array_hist[correct_id1][0] = array_hist[global_id - 1][0]
-            array_hist[global_id - 1][0] = 0
-            flag1 = 1
-            if report == False:
-                if max(arr_id1) > 15:
-                    count_same += 1
-                    for i in range(len(arr_id1)):
-                        arr_id1[i] = 0
-            k[0] = 20
-        # ////////////////////////////////////////////
+        report2 = False
+
+        # если новый объект
+        if id2 != id2_save:
+            # проверяем содержимое массива id и увеличиваем кол-во одинаковых объектов
+            count_same = if_same_object(arr_id2, array_hist, count_same, id2_save)
+            # если нет объекта в первой камере
+            if report1 == True:
+                # проверяем содержимое массива id и увеличиваем кол-во одинаковых объектов
+                count_same = if_same_object(arr_id1, array_hist, count_same, id1_save)
+            # обновляем счетчик кадров для гистограмм и для детектора
+            count_frame2 = count_frame
+
+        id2_save = id2
         global_id2 = id2 - count_same
-        if save_global_id2 != global_id2:
-            k[0] = 20
-            if k2 > 0:
-                if max(arr_id2) > 15:
-                    correct_id2 = arr_id2.index(max(arr_id2))
-                else:
-                    correct_id2 = id2 - count_same
-                    flag2 = 1
-        max2 = 0
-        if flag2 != 2:
-            k2 = 30
-            stop2 = False
-        save_global_id2 = image_hist(frame_plt2, array_hist, global_id2, 0, k, stop2)
-        if k2 > 0:
-            arr_id = 0
-            obj_k = 0
-            for i in range(global_id2):
-                for j in range(1):
-                    compareHist2 = cv2.compareHist(
-                        array_hist[global_id2][0].astype(np.float32),
-                        array_hist[i][j].astype(np.float32),
-                        cv2.HISTCMP_CORREL,
-                    )
-                    if compareHist2 > opt_param2 and compareHist2 != 1:
-                        if max2 < compareHist2:
-                            id2_new = id2
-                            flag2 = 2
-                            max2 = compareHist2
-                            arr_id = i
-                            obj_k += 1
-            if obj_k > 0:
-                arr_id2[arr_id] += 1
-            k2 -= 1
-        if k2 > 0:
-            correct_id2 = id2 - count_same
+
+        # копим новые гистограммы
+        image_hist(frame_plt2, array_hist, global_id2, count_frame2)
+
+        # пока счетчик кадров больше нуля, считаем сходства новой гистограммы с уже имеющимися
+        if count_frame2 > 0:
+            search_compare(global_id2, opt_param2, arr_id2)
+            count_frame2 -= 1
+            correct_id2 = global_id2
         else:
-            if max(arr_id2) > 15:
-                correct_id2 = arr_id2.index(max(arr_id2))
-            else:
-                correct_id2 = id2 - count_same
-                flag2 = 1
-            stop2 = True
-        if id2 == id2_new and flag2 == 2:
+            # иначе ищем id с макс совпадением
+            correct_id2 = find_max_same_id(arr_id2, count_same, id2)
             id2 = correct_id2
-        else:
-            if flag2 == 2:
-                flag2 = 3
-            else:
-                id2 = id2 - count_same
-        if flag2 == 3:
-            if np.all(array_hist[correct_id2][0] < EPSILON):
-                array_hist[correct_id2][0] = array_hist[global_id2][0]
-            count_same += 1
-            array_hist[global_id2][0] = 0
-            flag2 = 1
-            k[0] = 20
-            for i in range(len(arr_id2)):
-                arr_id2[i] = 0
-        cv2.putText(
-            roi2,
-            "Object " + str(id2),
-            (x, y1),
-            cv2.FONT_HERSHEY_PLAIN,
-            2,
-            (0, 0, 255),
-            2,
-        )
+            cv2.putText(
+                roi2,
+                "Object " + str(id2),
+                (x, y1),
+                cv2.FONT_HERSHEY_PLAIN,
+                2,
+                (0, 0, 255),
+                2,
+            )
+
         cv2.rectangle(roi2, (x, y), (x + w, y + h), (255, 0, 0), 3)
         tracker1.id_count = tracker2.id_count
+    print("count_same = ", count_same)
     resized_frame_1 = cv2.resize(frame1, (width // 2, height // 2))
     resized_frame_2 = cv2.resize(frame2, (width // 2, height // 2))
     combined_frame = cv2.hconcat([resized_frame_1, resized_frame_2])
