@@ -1,6 +1,7 @@
 import math
 import cv2
 
+MAX_DIST = 100  # максимальное расстояние между центрами
 
 class EuclideanDistTracker:
     def __init__(self):
@@ -14,12 +15,13 @@ class EuclideanDistTracker:
             x, y, w, h = rect
             cx = (x + x + w) // 2
             cy = (y + y + h) // 2
+
             # Поиск уже существующего объекта
             same_object_detected = False
             dist = 0
             for id, pt in self.center_points.items():
                 dist = math.hypot(cx - pt[0], cy - pt[1])
-                if dist < 100:
+                if dist < MAX_DIST:
                     self.center_points[id] = (cx, cy)
                     print(self.center_points)
                     objects_bbs_ids.append([x, y, w, h, id])

@@ -15,7 +15,7 @@ def clean_array(arr_id):
 
 def if_same_object(arr_id, array_hist, count_same, id_save):
     # если был найден существующий объект, то очистка собранных гистограмм и массива id + увеличение числа совпадающих объектов
-    if max(arr_id) >= count_frame // 5:
+    if max(arr_id) >= count_frame // 6:
         array_hist[id_save - count_same] = 0
         count_same += 1
     clean_array(arr_id)
@@ -87,7 +87,6 @@ def image_hist(frame_hist, arr_hist, count_id, count_frame):
             [frame_hist], [0, 1, 2], None, [160, 160, 160], [0, 256, 0, 256, 0, 256]
         )
         cv2.normalize(frame_hist, None, 0, 1.0, cv2.NORM_MINMAX)
-        EPSILON = 1e-6
         # если первая запись гистограммы - записываем всю, иначе как 0.1 нового значения и 0.9 старого
         if np.all(np.abs(arr_hist[count_id]) < EPSILON):
             arr_hist[count_id] = frame_hist
@@ -196,7 +195,6 @@ while True:
             search_compare(global_id1, opt_param1, arr_id1)
             count_frame1 -= 1
             correct_id1 = global_id1
-            print('arr_id1 ', arr_id1)
         else:
             # иначе ищем id с макс совпадением
             correct_id1 = find_max_same_id(arr_id1, count_same, id1)
