@@ -260,6 +260,7 @@ while True:
 
         cv2.rectangle(roi2, (x, y), (x + w, y + h), (255, 0, 0), 3)
         tracker1.id_count = tracker2.id_count
+    print("count_same = ", count_same)
     resized_frame_1 = cv2.resize(frame1, (width // 2, height // 2))
     resized_frame_2 = cv2.resize(frame2, (width // 2, height // 2))
     combined_frame = cv2.hconcat([resized_frame_1, resized_frame_2])
